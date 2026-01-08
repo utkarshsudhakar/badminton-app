@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <title>Knocklyon Badminton Club</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
 body {
   font-family: "Segoe UI", Arial, sans-serif;
@@ -36,6 +38,7 @@ input, select, button {
   padding: 8px;
   margin-top: 6px;
   margin-bottom: 10px;
+  font-size: 16px;
 }
 
 button {
@@ -54,13 +57,16 @@ button:hover { background: #1e4ed8; }
 }
 .tab {
   flex: 1;
-  padding: 10px;
+  padding: 12px;
   text-align: center;
   cursor: pointer;
   background: #e5e7eb;
   border-radius: 6px 6px 0 0;
 }
-.tab.active { background: white; font-weight: bold; }
+.tab.active {
+  background: white;
+  font-weight: bold;
+}
 
 /* Tab content */
 .tab-content { display: none; }
@@ -76,12 +82,10 @@ button:hover { background: #1e4ed8; }
   font-weight: bold;
   transition: 0.2s;
 }
-.player.attending { opacity: 1; }
 .player.not-attending { opacity: 0.5; }
 .player .name { font-size: 16px; }
 .player .games { font-size: 14px; font-weight: normal; }
 
-/* Light gender colors */
 .player.male { background: #dbeafe; }
 .player.female { background: #fce7f3; }
 
@@ -103,12 +107,17 @@ button:hover { background: #1e4ed8; }
   border-radius: 10px;
   padding: 12px;
 }
-.court h4 { text-align: center; margin-top: 0; font-size: 30px;}
+.court h4,
+.sitout h4 {
+  text-align: center;
+  margin-top: 0;
+  font-size: 26px;
+}
 
 .player-tile {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: bold;
-  padding: 16px;
+  padding: 14px;
   margin: 10px 0;
   border-radius: 10px;
   text-align: center;
@@ -116,38 +125,84 @@ button:hover { background: #1e4ed8; }
 .player-tile.male { background: #dbeafe; border: 2px solid #2563eb; }
 .player-tile.female { background: #fce7f3; border: 2px solid #db2777; }
 
-/* Sitting out section */
+/* Sitting out */
 .sitout {
   background: #fef9c3;
   border: 2px solid #fbbf24;
-  font-weight: bold;
   padding: 12px;
-  max-height: 500px;
-  overflow-y: auto;
   flex-basis: 220px;
 }
 
-.sitout h4{
-    text-align: center;
-    margin-top: 0;
-    font-size: 30px;
+#timerDisplay {
+  margin-top: 10px;
+  font-size: 22px;
+  font-weight: bold;
+  text-align: center;
+}
+#nextRoundText {
+  font-size: 16px;
+  text-align: center;
+  margin-top: 4px;
+  color: #1e40af;
 }
 
-#timerDisplay { margin-top: 10px; font-size: 22px; font-weight: bold; text-align:center; }
-#nextRoundText { font-size: 16px; text-align:center; margin-top: 4px; color:#1e40af; }
+/* ---------------- MOBILE RESPONSIVE ---------------- */
+@media (max-width: 900px) {
+
+  body { padding: 10px; }
+
+  h1 img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .container {
+    grid-template-columns: 1fr;
+  }
+
+  .courts-container {
+    flex-direction: column;
+  }
+
+  .courts {
+    grid-template-columns: 1fr;
+  }
+
+  .sitout {
+    width: 100%;
+  }
+
+  .court h4,
+  .sitout h4 {
+    font-size: 22px;
+  }
+
+  .player-tile {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tab { font-size: 14px; }
+  input, select, button { padding: 10px; }
+}
 </style>
 </head>
+
 <body>
 
-<h1 style="text-align: center;"><img src="kbc.jpg" /></h1>
+<h1 style="text-align:center;">
+  <img src="kbc.jpg" alt="Knocklyon Badminton Club">
+</h1>
 
 <div class="container">
 
 <!-- LEFT PANEL -->
 <div class="card">
   <h3>Add Player</h3>
+
   <input id="playerName" placeholder="Player Name">
-  <input id="division" type="number" placeholder="Division">
+
   <select id="division">
     <option value="">Select Division</option>
     <option value="1">1</option>
@@ -161,11 +216,13 @@ button:hover { background: #1e4ed8; }
     <option value="9">9</option>
     <option value="10">10</option>
   </select>
+
   <select id="gender">
     <option value="">Select Gender</option>
     <option value="M">Male</option>
     <option value="F">Female</option>
   </select>
+
   <button onclick="addPlayer()">Add Player</button>
 
   <h3>Upload Players (CSV)</h3>
@@ -178,13 +235,11 @@ button:hover { background: #1e4ed8; }
 
 <!-- RIGHT PANEL -->
 <div>
-  <!-- Tabs -->
   <div class="tabs">
     <div class="tab active" onclick="showTab('controls')">Game Controls</div>
     <div class="tab" onclick="showTab('courtsTab')">Court Assignment</div>
   </div>
 
-  <!-- Game Controls -->
   <div id="controls" class="card tab-content active">
     <h3>Game Controls</h3>
     <label>Mode</label>
@@ -192,14 +247,16 @@ button:hover { background: #1e4ed8; }
       <option value="graded">Graded</option>
       <option value="random">Non-Graded</option>
     </select>
+
     <label>Number of Courts</label>
     <input id="courtCount" type="number" value="3">
+
     <label>Timer (minutes)</label>
     <input id="timerMinutes" type="number" value="15">
+
     <button onclick="startRound()">Start / Next Round</button>
   </div>
 
-  <!-- Courts -->
   <div id="courtsTab" class="card tab-content">
     <h3>Court Assignment</h3>
     <button onclick="startRound()">Start / Next Round</button>
@@ -224,158 +281,115 @@ let players = [];
 let timerInterval;
 
 function showTab(tab) {
-  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
-  document.querySelectorAll(".tab-content").forEach(c=>c.classList.remove("active"));
-  if(tab==='controls'){ document.querySelectorAll(".tab")[0].classList.add("active"); document.getElementById('controls').classList.add("active"); }
-  else{ document.querySelectorAll(".tab")[1].classList.add("active"); document.getElementById('courtsTab').classList.add("active"); }
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+
+  if (tab === "controls") {
+    document.querySelectorAll(".tab")[0].classList.add("active");
+    document.getElementById("controls").classList.add("active");
+  } else {
+    document.querySelectorAll(".tab")[1].classList.add("active");
+    document.getElementById("courtsTab").classList.add("active");
+  }
 }
 
-// ---------------- CSV UPLOAD ----------------
-function uploadCSV(){
-  const file=document.getElementById("csvFile").files[0];
-  if(!file) return alert("Please select CSV");
-  const reader=new FileReader();
-  reader.onload=function(e){
-    const lines=e.target.result.split("\n");
-    const headers=lines[0].toLowerCase().split(",");
-    const nameIdx=headers.indexOf("player name");
-    const genIdx=headers.indexOf("gender");
-    if(nameIdx===-1||genIdx===-1) return alert("CSV must contain headers: player name, gender");
+function uploadCSV() {
+  const file = document.getElementById("csvFile").files[0];
+  if (!file) return alert("Please select CSV");
 
-    for(let i=1;i<lines.length;i++){
-      if(!lines[i].trim()) continue;
-      const cols=lines[i].split(",");
-      const name=cols[nameIdx]?.trim();
-      const gender=cols[genIdx]?.trim().toUpperCase();
-      if(!name || !["M","F"].includes(gender)) continue;
-      players.push({name, gender, attending:true, gamesPlayed:0, lastRoundSatOut:false});
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.split("\n");
+    const headers = lines[0].toLowerCase().split(",");
+    const nameIdx = headers.indexOf("player name");
+    const genIdx = headers.indexOf("gender");
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(",");
+      const name = cols[nameIdx]?.trim();
+      const gender = cols[genIdx]?.trim().toUpperCase();
+      if (name && ["M", "F"].includes(gender)) {
+        players.push({ name, gender, attending: true, gamesPlayed: 0 });
+      }
     }
     renderPlayers();
-    document.getElementById("csvFile").value="";
-  }
+  };
   reader.readAsText(file);
 }
 
-// ---------------- ADD PLAYER ----------------
-function addPlayer(){
-  const name = document.getElementById("playerName").value.trim();
-  const gen = document.getElementById("gender").value;
-  const div = document.getElementById("division").value;
-  if(!name || !gen || !div) return alert("Please fill all fields");
+function addPlayer() {
+  const name = playerName.value.trim();
+  const gender = document.getElementById("gender").value;
+  const division = document.getElementById("division").value;
 
-  players.push({
-    name,
-    gender: gen,
-    division: parseInt(div), // store division for graded logic
-    attending: true,
-    gamesPlayed: 0,
-    lastRoundSatOut: false
-  });
+  if (!name || !gender || !division) return alert("Fill all fields");
 
-  document.getElementById("playerName").value = "";
-  document.getElementById("gender").value = "";
-  document.getElementById("division").value = "";
+  players.push({ name, gender, division, attending: true, gamesPlayed: 0 });
+
+  playerName.value = "";
+  gender.value = "";
+  division.value = "";
 
   renderPlayers();
 }
 
-
-// ---------------- RENDER PLAYER LIST ----------------
-function renderPlayers(){
-  const list=document.getElementById("playerList");
-  list.innerHTML="";
-  players.forEach((p,i)=>{
-    const div=document.createElement("div");
-    div.className="player "+(p.attending?"attending":"not-attending") + (p.gender==="M"?" male":" female");
-    div.onclick=()=>{p.attending=!p.attending; renderPlayers();}
-    div.innerHTML=`<div class="name">${p.name}</div><div class="games">Games: ${p.gamesPlayed}</div>`;
-    list.appendChild(div);
+function renderPlayers() {
+  playerList.innerHTML = "";
+  players.forEach(p => {
+    const div = document.createElement("div");
+    div.className = `player ${p.gender === "M" ? "male" : "female"} ${p.attending ? "" : "not-attending"}`;
+    div.onclick = () => { p.attending = !p.attending; renderPlayers(); };
+    div.innerHTML = `<div class="name">${p.name}</div><div class="games">Games: ${p.gamesPlayed}</div>`;
+    playerList.appendChild(div);
   });
 }
 
-// ---------------- TIMER ----------------
-function startRound(){
+function startRound() {
   clearInterval(timerInterval);
-  const warningSound=document.getElementById("warningSound");
-  warningSound.pause();
-  warningSound.currentTime=0;
   assignCourts();
   showTab("courtsTab");
 
-  let seconds=parseInt(document.getElementById("timerMinutes").value)*60;
-  const display=document.getElementById("timerDisplay");
-  const nextText=document.getElementById("nextRoundText");
-  function formatTime(sec){ const m=Math.floor(sec/60); const s=sec%60; return `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;}
-  display.textContent=formatTime(seconds); nextText.textContent="Time until next round";
-
-  timerInterval=setInterval(()=>{
-    seconds--;
-    display.textContent=formatTime(seconds);
-    if(seconds===60) warningSound.play();
-    if(seconds<=0){ warningSound.pause(); warningSound.currentTime=0; clearInterval(timerInterval); startRound();}
-  },1000);
+  let seconds = timerMinutes.value * 60;
+  timerInterval = setInterval(() => {
+    timerDisplay.textContent =
+      String(Math.floor(seconds / 60)).padStart(2, "0") + ":" +
+      String(seconds % 60).padStart(2, "0");
+    if (--seconds < 0) startRound();
+  }, 1000);
 }
 
-// ---------------- COURT ASSIGNMENT ----------------
-function assignCourts(){
-  const courts=document.getElementById("courts");
-  const sitting=document.getElementById("sittingOut");
-  courts.innerHTML=""; sitting.innerHTML="<h4>Sitting Out</h4>";
+function assignCourts() {
+  courts.innerHTML = "";
+  sittingOut.innerHTML = "<h4>Sitting Out</h4>";
 
-  let attendingPlayers = players.filter(p=>p.attending);
-  if(attendingPlayers.length===0) return;
+  let available = players.filter(p => p.attending).sort((a, b) => a.gamesPlayed - b.gamesPlayed);
+  let used = new Set();
 
-  const shuffle=arr=>arr.sort(()=>Math.random()-0.5);
-  const sortPriority=arr=>arr.sort((a,b)=>{
-    if(a.gamesPlayed===b.gamesPlayed) return Math.random()-0.5;
-    return a.gamesPlayed-b.gamesPlayed;
-  });
+  for (let i = 1; i <= courtCount.value; i++) {
+    const group = available.splice(0, 4);
+    if (group.length < 4) break;
 
-  let males=sortPriority(attendingPlayers.filter(p=>p.gender==="M"));
-  let females=sortPriority(attendingPlayers.filter(p=>p.gender==="F"));
+    const court = document.createElement("div");
+    court.className = "court";
+    court.innerHTML = `<h4>Court ${i}</h4>`;
 
-  const totalCourts=parseInt(document.getElementById("courtCount").value);
-  let courtNumber=1;
-
-  let usedPlayers = new Set();
-
-  for(let i=0;i<totalCourts;i++){
-    const court=document.createElement("div");
-    court.className="court";
-    court.innerHTML=`<h4>Court ${courtNumber++}</h4>`;
-    let group=[],possibleTypes=[];
-    const totalM=males.length, totalF=females.length;
-    if(totalM>=2 && totalF>=2) possibleTypes.push("mixed");
-    if(totalM>=4) possibleTypes.push("men");
-    if(totalF>=4) possibleTypes.push("ladies");
-    if(possibleTypes.length===0) break;
-    const type=possibleTypes[Math.floor(Math.random()*possibleTypes.length)];
-
-    if(type==="mixed"){ for(let j=0;j<2;j++) group.push(males.shift()); for(let j=0;j<2;j++) group.push(females.shift()); }
-    else if(type==="men"){ for(let j=0;j<4;j++) group.push(males.shift()); }
-    else if(type==="ladies"){ for(let j=0;j<4;j++) group.push(females.shift()); }
-
-    group.forEach(p=>{
-      if(!p) return;
-      const tile=document.createElement("div");
-      tile.className=`player-tile ${p.gender==="M"?"male":"female"}`;
-      //tile.textContent=`${p.name} (Games: ${p.gamesPlayed+1})`;
-      tile.textContent=`${p.name}`;
-      court.appendChild(tile);
-      usedPlayers.add(p);
+    group.forEach(p => {
       p.gamesPlayed++;
+      used.add(p);
+      const t = document.createElement("div");
+      t.className = `player-tile ${p.gender === "M" ? "male" : "female"}`;
+      t.textContent = p.name;
+      court.appendChild(t);
     });
+
     courts.appendChild(court);
   }
 
-  // Sitting out
-  const sittingPlayers = attendingPlayers.filter(p=>!usedPlayers.has(p));
-  sittingPlayers.forEach(p=>{
-    const tile=document.createElement("div");
-    tile.className=`player-tile ${p.gender==="M"?"male":"female"}`;
-    //tile.textContent=`${p.name} (Games: ${p.gamesPlayed})`;
-    tile.textContent=`${p.name}`;
-    sitting.appendChild(tile);
+  available.forEach(p => {
+    const t = document.createElement("div");
+    t.className = `player-tile ${p.gender === "M" ? "male" : "female"}`;
+    t.textContent = p.name;
+    sittingOut.appendChild(t);
   });
 
   renderPlayers();
