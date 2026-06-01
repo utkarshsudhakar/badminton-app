@@ -1994,6 +1994,55 @@ function canPoolFillCourts(pool, numCourts) {
   return generateCourtSequences(m, f, numCourts).length > 0;
 }
 
+function hasFeasibleCompletion(partial, remaining, need, numCourts) {
+  if (need <= 0) return canPoolFillCourts(partial, numCourts);
+  if (remaining.length < need) return false;
+  if (need > 5) {
+    const m = countGender(partial).m + remaining.filter(p => p.gender === "M").length;
+    const f = countGender(partial).f + remaining.filter(p => p.gender === "F").length;
+    return generateCourtSequences(m, f, numCourts).length > 0;
+  }
+  for (const add of combinations(remaining, need)) {
+    if (canPoolFillCourts([...partial, ...add], numCourts)) return true;
+  }
+  return false;
+}
+
+function buildGenderFeasibleGradedPool(available, numCourts, required) {
+  const slots = numCourts * 4;
+  let mustInclude = required ? [...required] : [];
+  if (mustInclude.length > slots) mustInclude = mustInclude.slice(0, slots);
+
+  for (let attempt = 0; attempt < 80; attempt++) {
+    shuffleTieBreaks(available);
+    let pool = [...mustInclude];
+    const inPool = new Set(pool.map(p => p.name));
+    const rest = available.filter(p => !inPool.has(p.name)).sort(compareGradedPriority);
+
+    for (const p of rest) {
+      if (pool.length >= slots) break;
+      const trial = [...pool, p];
+      const left = slots - trial.length;
+      const unused = available.filter(x => !trial.some(y => y.name === x.name));
+      if (left === 0) {
+        if (canPoolFillCourts(trial, numCourts)) pool = trial;
+      } else if (hasFeasibleCompletion(trial, unused, left, numCourts)) {
+        pool.push(p);
+      }
+    }
+
+    if (pool.length === slots && canPoolFillCourts(pool, numCourts)) return pool;
+  }
+
+  for (let i = 0; i < 150; i++) {
+    shuffleArray(available);
+    const pool = available.slice(0, slots);
+    if (canPoolFillCourts(pool, numCourts)) return pool;
+  }
+
+  return null;
+}
+
 function selectGradedPlayingPool(available, numCourts) {
   const slots = numCourts * 4;
   const tightPool = available.length < slots * 2;
@@ -2005,70 +2054,24 @@ function selectGradedPlayingPool(available, numCourts) {
   );
 
   if (freshSession) {
+    const randomPool = buildGenderFeasibleGradedPool(available, numCourts, []);
+    if (randomPool) return randomPool;
     shuffleArray(pool);
     return pool.slice(0, slots);
   }
 
+  let required = [];
   if (tightPool) {
-    const required = pool
+    required = pool
       .filter(p => p.mustPlay || (p.sitOutStreak || 0) >= 1)
       .sort(compareGradedPriority);
-    const requiredNames = new Set(required.map(p => p.name));
-    let selected = required.length > slots
-      ? required.slice(0, slots)
-      : [...required];
-
-    if (selected.length < slots) {
-      const rest = pool
-        .filter(p => !requiredNames.has(p.name))
-        .sort(compareGradedPriority);
-      selected = selected.concat(rest.slice(0, slots - selected.length));
-    }
-    return selected;
   }
+
+  const feasible = buildGenderFeasibleGradedPool(available, numCourts, required);
+  if (feasible) return feasible;
 
   pool.sort(compareGradedPriority);
   return pool.slice(0, slots);
-}
-
-function refineGradedPoolForGender(pool, available, numCourts) {
-  if (canPoolFillCourts(pool, numCourts)) return pool;
-  let current = [...pool];
-
-  for (let attempt = 0; attempt < 60; attempt++) {
-    if (canPoolFillCourts(current, numCourts)) return current;
-
-    const outside = available.filter(p => !current.some(x => x.name === p.name));
-    if (!outside.length) break;
-
-    const swapOut = current
-      .map((p, i) => ({ p, i }))
-      .filter(({ p }) => !p.mustPlay && (p.sitOutStreak || 0) === 0)
-      .sort((a, b) => compareGradedPriority(b.p, a.p));
-
-    if (!swapOut.length) break;
-
-    let improved = false;
-    for (const { i } of swapOut) {
-      for (const candidate of outside) {
-        const trial = [...current];
-        trial[i] = candidate;
-        if (canPoolFillCourts(trial, numCourts)) {
-          current = trial;
-          improved = true;
-          break;
-        }
-      }
-      if (improved) break;
-    }
-
-    if (!improved) {
-      const pick = swapOut[attempt % swapOut.length];
-      const candidate = outside[attempt % outside.length];
-      if (pick && candidate) current[pick.i] = candidate;
-    }
-  }
-  return current;
 }
 
 function scoreGradedCourtGroup(group, courtType) {
@@ -2099,21 +2102,22 @@ function listGradedGroups(remaining, courtType) {
 }
 
 function assignGradedSequence(pool, typeSeq) {
-  function search(remaining, idx, built) {
+  function search(remaining, idx, built, limit) {
     if (idx === typeSeq.length) return built;
     const type = typeSeq[idx];
-    const groups = listGradedGroups(remaining, type)
+    let groups = listGradedGroups(remaining, type)
       .map(group => ({ group, score: scoreGradedCourtGroup(group, type) }))
-      .sort((a, b) => a.score - b.score)
-      .slice(0, 30);
+      .sort((a, b) => a.score - b.score);
+    if (limit) groups = groups.slice(0, limit);
 
     for (const { group } of groups) {
-      const result = search(removeFromPool(remaining, group), idx + 1, [...built, { type, group }]);
+      const result = search(removeFromPool(remaining, group), idx + 1, [...built, { type, group }], limit);
       if (result) return result;
     }
     return null;
   }
-  return search(pool, 0, []);
+
+  return search(pool, 0, [], 40) || search(pool, 0, [], null);
 }
 
 function scoreGradedRoundPlan(courts, numCourts) {
@@ -2160,11 +2164,10 @@ function planGradedRound(available, numCourts) {
   const slots = numCourts * 4;
   if (available.length < slots) return null;
 
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 25; attempt++) {
     shuffleTieBreaks(available);
     let pool = selectGradedPlayingPool(available, numCourts);
-    pool = refineGradedPoolForGender(pool, available, numCourts);
-    if (pool.length < slots || !canPoolFillCourts(pool, numCourts)) continue;
+    if (!pool || pool.length < slots || !canPoolFillCourts(pool, numCourts)) continue;
 
     const courts = buildGradedCourtsFromPool(pool, numCourts);
     if (courts && courts.length === numCourts) return courts;
@@ -2208,6 +2211,15 @@ function assignCourts() {
   if (!graded && (!roundCourts || roundCourts.length < numCourts)) {
     const greedy = buildRoundGreedy(available, numCourts);
     if (!roundCourts || greedy.length > roundCourts.length) roundCourts = greedy;
+  }
+
+  if (graded && (!roundCourts || roundCourts.length < numCourts)) {
+    shuffleTieBreaks(available);
+    const slots = numCourts * 4;
+    const pool = buildGenderFeasibleGradedPool(available, numCourts, available.filter(p => p.mustPlay));
+    if (pool && pool.length === slots) {
+      roundCourts = buildGradedCourtsFromPool(pool, numCourts);
+    }
   }
 
   if (!roundCourts || !roundCourts.length) {
