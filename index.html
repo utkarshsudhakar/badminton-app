@@ -1611,31 +1611,38 @@ function newPlayer(name, gender, division) {
     sitOutStreak: 0,
     mustPlay: false,
     courtTypesPlayed: { mixed: 0, mens: 0, ladies: 0 },
-    playedWith: {}
+    playedWith: {},
+    courtGroups: {}
   };
 }
 
 function ensurePlayerStats(p) {
   if (!p.courtTypesPlayed) p.courtTypesPlayed = { mixed: 0, mens: 0, ladies: 0 };
   if (!p.playedWith) p.playedWith = {};
+  if (!p.courtGroups) p.courtGroups = {};
   if (p.sitOutStreak === undefined) p.sitOutStreak = 0;
   if (p.mustPlay === undefined) p.mustPlay = false;
 }
 
-function getMateCount(a, bName) {
-  ensurePlayerStats(a);
-  return a.playedWith[bName] || 0;
+function getGroupKey(group) {
+  return group.map(p => p.name).sort().join("|");
 }
 
-function courtMateRepeatScore(group) {
-  let score = 0;
-  for (let i = 0; i < group.length; i++) {
-    for (let j = i + 1; j < group.length; j++) {
-      const count = getMateCount(group[i], group[j].name);
-      if (count > 0) score += count * 280 + (count >= 2 ? (count - 1) * 650 : 0);
-    }
+function exactGroupRepeatPenalty(group) {
+  const key = getGroupKey(group);
+  for (const p of group) {
+    ensurePlayerStats(p);
+    if ((p.courtGroups[key] || 0) >= 1) return 500000;
   }
-  return score;
+  return 0;
+}
+
+function recordCourtGroup(group) {
+  const key = getGroupKey(group);
+  group.forEach(p => {
+    ensurePlayerStats(p);
+    p.courtGroups[key] = (p.courtGroups[key] || 0) + 1;
+  });
 }
 
 function recordCourtMates(group) {
@@ -1778,13 +1785,11 @@ function courtTypeVarietyPenalty(p, courtType) {
   return share * 500;
 }
 
-function simulateRound(available, typeSeq, graded) {
+function simulateRound(available, typeSeq) {
   let pool = [...available];
   const courts = [];
   for (const type of typeSeq) {
-    const group = graded
-      ? pickCourtPlayers(pool, type, true, true)
-      : pickNonGradedCourtGroup(pool, type);
+    const group = pickNonGradedCourtGroup(pool, type);
     if (group.length < 4 || !isValidCourt(group) || !isUniqueGroup(group)) return null;
     courts.push({ type, group });
     pool = removeFromPool(pool, group);
@@ -1792,7 +1797,7 @@ function simulateRound(available, typeSeq, graded) {
   return courts.length === typeSeq.length ? courts : null;
 }
 
-function buildRoundGreedy(available, numCourts, graded) {
+function buildRoundGreedy(available, numCourts) {
   let pool = [...available];
   available.forEach(ensurePlayerStats);
   shuffleTieBreaks(pool);
@@ -1807,25 +1812,15 @@ function buildRoundGreedy(available, numCourts, graded) {
     if (!options.length) break;
 
     let best = null;
-    let bestScore = graded ? Infinity : -Infinity;
+    let bestScore = -Infinity;
 
     for (const type of options) {
-      const group = graded
-        ? pickCourtPlayers(pool, type, true, true)
-        : pickNonGradedCourtGroup(pool, type);
+      const group = pickNonGradedCourtGroup(pool, type);
       if (group.length < 4 || !isValidCourt(group) || !isUniqueGroup(group)) continue;
-      if (graded) {
-        const score = gradedCourtScore(group);
-        if (score < bestScore) {
-          bestScore = score;
-          best = { type, group };
-        }
-      } else {
-        const lex = tierLexScore(nonGradedGroupTiers(group));
-        if (lex > bestScore) {
-          bestScore = lex;
-          best = { type, group };
-        }
+      const lex = tierLexScore(nonGradedGroupTiers(group));
+      if (lex > bestScore) {
+        bestScore = lex;
+        best = { type, group };
       }
     }
 
@@ -1837,7 +1832,7 @@ function buildRoundGreedy(available, numCourts, graded) {
   return courts;
 }
 
-function roundPlanScore(available, courts, graded, numCourts) {
+function roundPlanScore(available, courts, numCourts) {
   const playing = new Set();
   const typeCounts = { mixed: 0, mens: 0, ladies: 0 };
   courts.forEach(c => {
@@ -1859,28 +1854,22 @@ function roundPlanScore(available, courts, graded, numCourts) {
     0
   );
 
-  if (!graded) {
-    const slots = numCourts * 4;
-    const tightPool = available.length < slots * 2;
-    sitters.forEach(p => {
-      ensurePlayerStats(p);
-      const streak = p.sitOutStreak || 0;
-      const nextStreak = streak + 1;
-      if (p.mustPlay) sitPenalty += 5000000;
-      if (streak >= 1) sitPenalty += 1200000;
-      if (tightPool && nextStreak >= 2) sitPenalty += 400000;
-      else if (nextStreak >= 1) sitPenalty += 80000;
-      sitPenalty += p.gamesPlayed * 300;
-    });
-    courts.forEach(c => {
-      sitPenalty += divisionBalanceScore(c.group) * 25;
-      c.group.forEach(p => { sitPenalty += courtTypeVarietyPenalty(p, c.type); });
-    });
-  } else {
-    courts.forEach(c => {
-      sitPenalty += courtMateRepeatScore(c.group) * 45;
-    });
-  }
+  const slots = numCourts * 4;
+  const tightPool = available.length < slots * 2;
+  sitters.forEach(p => {
+    ensurePlayerStats(p);
+    const streak = p.sitOutStreak || 0;
+    const nextStreak = streak + 1;
+    if (p.mustPlay) sitPenalty += 5000000;
+    if (streak >= 1) sitPenalty += 1200000;
+    if (tightPool && nextStreak >= 2) sitPenalty += 400000;
+    else if (nextStreak >= 1) sitPenalty += 80000;
+    sitPenalty += p.gamesPlayed * 300;
+  });
+  courts.forEach(c => {
+    sitPenalty += divisionBalanceScore(c.group) * 25;
+    c.group.forEach(p => { sitPenalty += courtTypeVarietyPenalty(p, c.type); });
+  });
 
   const menSit = sitters.filter(p => p.gender === "M").length;
   const womenSit = sitters.filter(p => p.gender === "F").length;
@@ -1898,7 +1887,7 @@ function roundPlanScore(available, courts, graded, numCourts) {
   return spread * 10000 + sitPenalty + genderPenalty + diversityPenalty + varietyBonus - mixedCount * 200;
 }
 
-function planRound(available, numCourts, graded) {
+function planRound(available, numCourts) {
   const { m, f } = countGender(available);
   let sequences = generateCourtSequences(m, f, numCourts);
   if (!sequences.length) return null;
@@ -1907,15 +1896,15 @@ function planRound(available, numCourts, graded) {
   const capped = sequences.filter(seq => maxTypeCount(seq) <= maxSame);
   if (capped.length) sequences = capped;
 
-  sequences = sequences.filter(seq => simulateRound(available, seq, graded) != null);
+  sequences = sequences.filter(seq => simulateRound(available, seq) != null);
 
   let bestPlans = [];
   let bestScore = Infinity;
 
   for (const typeSeq of sequences) {
-    const courts = simulateRound(available, typeSeq, graded);
+    const courts = simulateRound(available, typeSeq);
     if (!courts) continue;
-    const score = roundPlanScore(available, courts, graded, numCourts);
+    const score = roundPlanScore(available, courts, numCourts);
     if (score < bestScore) {
       bestScore = score;
       bestPlans = [courts];
@@ -1929,7 +1918,7 @@ function planRound(available, numCourts, graded) {
     : null;
 
   if (!result || result.length < numCourts) {
-    const greedy = buildRoundGreedy(available, numCourts, graded);
+    const greedy = buildRoundGreedy(available, numCourts);
     if (greedy.length > (result?.length || 0)) result = greedy;
   }
 
@@ -1981,55 +1970,206 @@ function divisionSpread(group) {
   return Math.max(...divs) - Math.min(...divs);
 }
 
-const GRADED_NEAR_BEST_SLACK = 70;
-
-function gradedCourtScore(group) {
-  const spread = divisionSpread(group);
-  let divScore = spread;
-  if (spread > 2) divScore = spread * 20 + Math.pow(spread - 2, 2) * 800;
-  const gamesSum = group.reduce((s, p) => s + p.gamesPlayed, 0);
-  const sitSum = group.reduce((s, p) => s + (p.sitOuts || 0), 0);
-  return divScore * 10000 + gamesSum * 100 + sitSum * 50 + courtMateRepeatScore(group);
+function compareGradedPriority(a, b) {
+  const pa = gradedPoolPriority(a);
+  const pb = gradedPoolPriority(b);
+  for (let i = 0; i < pa.length; i++) {
+    if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+  }
+  return 0;
 }
 
-function pickGradedCourtGroup(pool, type, deterministic) {
-  const need = COURT_TYPES[type];
+function gradedPoolPriority(p) {
+  ensurePlayerStats(p);
+  return [
+    p.mustPlay ? 0 : 1,
+    -(p.sitOutStreak || 0),
+    p.gamesPlayed || 0,
+    p._tieBreak || 0
+  ];
+}
+
+function canPoolFillCourts(pool, numCourts) {
+  const { m, f } = countGender(pool);
+  return generateCourtSequences(m, f, numCourts).length > 0;
+}
+
+function selectGradedPlayingPool(available, numCourts) {
+  const slots = numCourts * 4;
+  const tightPool = available.length < slots * 2;
+  const pool = [...available];
+  shuffleTieBreaks(pool);
+
+  const freshSession = pool.every(p =>
+    (p.gamesPlayed || 0) === 0 && (p.sitOutStreak || 0) === 0 && !p.mustPlay
+  );
+
+  if (freshSession) {
+    shuffleArray(pool);
+    return pool.slice(0, slots);
+  }
+
+  if (tightPool) {
+    const required = pool
+      .filter(p => p.mustPlay || (p.sitOutStreak || 0) >= 1)
+      .sort(compareGradedPriority);
+    const requiredNames = new Set(required.map(p => p.name));
+    let selected = required.length > slots
+      ? required.slice(0, slots)
+      : [...required];
+
+    if (selected.length < slots) {
+      const rest = pool
+        .filter(p => !requiredNames.has(p.name))
+        .sort(compareGradedPriority);
+      selected = selected.concat(rest.slice(0, slots - selected.length));
+    }
+    return selected;
+  }
+
+  pool.sort(compareGradedPriority);
+  return pool.slice(0, slots);
+}
+
+function refineGradedPoolForGender(pool, available, numCourts) {
+  if (canPoolFillCourts(pool, numCourts)) return pool;
+  let current = [...pool];
+
+  for (let attempt = 0; attempt < 60; attempt++) {
+    if (canPoolFillCourts(current, numCourts)) return current;
+
+    const outside = available.filter(p => !current.some(x => x.name === p.name));
+    if (!outside.length) break;
+
+    const swapOut = current
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => !p.mustPlay && (p.sitOutStreak || 0) === 0)
+      .sort((a, b) => compareGradedPriority(b.p, a.p));
+
+    if (!swapOut.length) break;
+
+    let improved = false;
+    for (const { i } of swapOut) {
+      for (const candidate of outside) {
+        const trial = [...current];
+        trial[i] = candidate;
+        if (canPoolFillCourts(trial, numCourts)) {
+          current = trial;
+          improved = true;
+          break;
+        }
+      }
+      if (improved) break;
+    }
+
+    if (!improved) {
+      const pick = swapOut[attempt % swapOut.length];
+      const candidate = outside[attempt % outside.length];
+      if (pick && candidate) current[pick.i] = candidate;
+    }
+  }
+  return current;
+}
+
+function scoreGradedCourtGroup(group, courtType) {
+  const spread = divisionSpread(group);
+  let score = spread * 120;
+  if (spread > 3) score += (spread - 3) * 400;
+  score += exactGroupRepeatPenalty(group) / 1000;
+  score += group.reduce((s, p) => s + courtTypeVarietyPenalty(p, courtType), 0) / 40;
+  return score;
+}
+
+function listGradedGroups(remaining, courtType) {
+  const need = COURT_TYPES[courtType];
   const needM = need.m || 0;
   const needF = need.f || 0;
-  const males = pool.filter(p => p.gender === "M");
-  const females = pool.filter(p => p.gender === "F");
+  const males = remaining.filter(p => p.gender === "M");
+  const females = remaining.filter(p => p.gender === "F");
   if (males.length < needM || females.length < needF) return [];
 
-  const scored = [];
+  const groups = [];
   for (const malePick of combinations(males, needM)) {
     for (const femalePick of combinations(females, needF)) {
       const group = [...malePick, ...femalePick];
-      if (!isValidCourt(group) || !isUniqueGroup(group)) continue;
-      scored.push({
-        group,
-        score: gradedCourtScore(group),
-        repeat: courtMateRepeatScore(group)
-      });
+      if (isValidCourt(group) && isUniqueGroup(group)) groups.push(group);
     }
   }
-
-  if (!scored.length) {
-    return [...males.slice(0, needM), ...females.slice(0, needF)];
-  }
-
-  const minScore = Math.min(...scored.map(s => s.score));
-  const slack = deterministic ? GRADED_NEAR_BEST_SLACK * 0.35 : GRADED_NEAR_BEST_SLACK;
-  let candidates = scored.filter(s => s.score <= minScore + slack);
-  const minRepeat = Math.min(...candidates.map(s => s.repeat));
-  candidates = candidates.filter(s => s.repeat <= minRepeat + 120);
-  return candidates[Math.floor(Math.random() * candidates.length)].group;
+  return groups;
 }
 
-function pickCourtPlayers(available, type, graded, deterministic = false) {
-  if (!graded) {
-    return pickNonGradedCourtGroup(available, type);
+function assignGradedSequence(pool, typeSeq) {
+  function search(remaining, idx, built) {
+    if (idx === typeSeq.length) return built;
+    const type = typeSeq[idx];
+    const groups = listGradedGroups(remaining, type)
+      .map(group => ({ group, score: scoreGradedCourtGroup(group, type) }))
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 30);
+
+    for (const { group } of groups) {
+      const result = search(removeFromPool(remaining, group), idx + 1, [...built, { type, group }]);
+      if (result) return result;
+    }
+    return null;
   }
-  return pickGradedCourtGroup(available, type, deterministic);
+  return search(pool, 0, []);
+}
+
+function scoreGradedRoundPlan(courts, numCourts) {
+  let score = 0;
+  const typeCounts = { mixed: 0, mens: 0, ladies: 0 };
+  courts.forEach(c => {
+    typeCounts[c.type]++;
+    score += divisionSpread(c.group) * 50;
+    score += exactGroupRepeatPenalty(c.group);
+    c.group.forEach(p => { score += courtTypeVarietyPenalty(p, c.type); });
+  });
+  if (numCourts > 1 && Math.max(...Object.values(typeCounts)) === numCourts) {
+    score += 4000;
+  }
+  return score;
+}
+
+function buildGradedCourtsFromPool(pool, numCourts) {
+  const { m, f } = countGender(pool);
+  let sequences = generateCourtSequences(m, f, numCourts);
+  if (!sequences.length) return null;
+
+  const maxSame = numCourts >= 3 ? 2 : numCourts;
+  const capped = sequences.filter(seq => maxTypeCount(seq) <= maxSame);
+  if (capped.length) sequences = capped;
+
+  let bestCourts = null;
+  let bestScore = Infinity;
+
+  for (const typeSeq of sequences) {
+    const courts = assignGradedSequence(pool, typeSeq);
+    if (!courts || courts.length !== numCourts) continue;
+    const roundScore = scoreGradedRoundPlan(courts, numCourts);
+    if (roundScore < bestScore) {
+      bestScore = roundScore;
+      bestCourts = courts;
+    }
+  }
+  return bestCourts;
+}
+
+function planGradedRound(available, numCourts) {
+  available.forEach(ensurePlayerStats);
+  const slots = numCourts * 4;
+  if (available.length < slots) return null;
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    shuffleTieBreaks(available);
+    let pool = selectGradedPlayingPool(available, numCourts);
+    pool = refineGradedPoolForGender(pool, available, numCourts);
+    if (pool.length < slots || !canPoolFillCourts(pool, numCourts)) continue;
+
+    const courts = buildGradedCourtsFromPool(pool, numCourts);
+    if (courts && courts.length === numCourts) return courts;
+  }
+  return null;
 }
 
 function removeFromPool(pool, group) {
@@ -2061,10 +2201,12 @@ function assignCourts() {
   shuffleTieBreaks(available);
 
   const playedThisRound = new Set();
-  let roundCourts = planRound(available, numCourts, graded);
+  let roundCourts = graded
+    ? planGradedRound(available, numCourts)
+    : planRound(available, numCourts);
 
-  if (!roundCourts || roundCourts.length < numCourts) {
-    const greedy = buildRoundGreedy(available, numCourts, graded);
+  if (!graded && (!roundCourts || roundCourts.length < numCourts)) {
+    const greedy = buildRoundGreedy(available, numCourts);
     if (!roundCourts || greedy.length > roundCourts.length) roundCourts = greedy;
   }
 
@@ -2101,6 +2243,7 @@ function assignCourts() {
     });
 
     recordCourtMates(courtPlan.group);
+    recordCourtGroup(courtPlan.group);
 
     courts.appendChild(court);
   });
