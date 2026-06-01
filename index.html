@@ -1610,14 +1610,45 @@ function newPlayer(name, gender, division) {
     sitOuts: 0,
     sitOutStreak: 0,
     mustPlay: false,
-    courtTypesPlayed: { mixed: 0, mens: 0, ladies: 0 }
+    courtTypesPlayed: { mixed: 0, mens: 0, ladies: 0 },
+    playedWith: {}
   };
 }
 
 function ensurePlayerStats(p) {
   if (!p.courtTypesPlayed) p.courtTypesPlayed = { mixed: 0, mens: 0, ladies: 0 };
+  if (!p.playedWith) p.playedWith = {};
   if (p.sitOutStreak === undefined) p.sitOutStreak = 0;
   if (p.mustPlay === undefined) p.mustPlay = false;
+}
+
+function getMateCount(a, bName) {
+  ensurePlayerStats(a);
+  return a.playedWith[bName] || 0;
+}
+
+function courtMateRepeatScore(group) {
+  let score = 0;
+  for (let i = 0; i < group.length; i++) {
+    for (let j = i + 1; j < group.length; j++) {
+      const count = getMateCount(group[i], group[j].name);
+      if (count > 0) score += count * 280 + (count >= 2 ? (count - 1) * 650 : 0);
+    }
+  }
+  return score;
+}
+
+function recordCourtMates(group) {
+  for (let i = 0; i < group.length; i++) {
+    for (let j = i + 1; j < group.length; j++) {
+      const a = group[i];
+      const b = group[j];
+      ensurePlayerStats(a);
+      ensurePlayerStats(b);
+      a.playedWith[b.name] = (a.playedWith[b.name] || 0) + 1;
+      b.playedWith[a.name] = (b.playedWith[a.name] || 0) + 1;
+    }
+  }
 }
 
 function shuffleArray(arr) {
@@ -1784,8 +1815,7 @@ function buildRoundGreedy(available, numCourts, graded) {
         : pickNonGradedCourtGroup(pool, type);
       if (group.length < 4 || !isValidCourt(group) || !isUniqueGroup(group)) continue;
       if (graded) {
-        const score = divisionBalanceScore(group) +
-          group.reduce((s, p) => s + playerFairnessWeight(p), 0);
+        const score = gradedCourtScore(group);
         if (score < bestScore) {
           bestScore = score;
           best = { type, group };
@@ -1845,6 +1875,10 @@ function roundPlanScore(available, courts, graded, numCourts) {
     courts.forEach(c => {
       sitPenalty += divisionBalanceScore(c.group) * 25;
       c.group.forEach(p => { sitPenalty += courtTypeVarietyPenalty(p, c.type); });
+    });
+  } else {
+    courts.forEach(c => {
+      sitPenalty += courtMateRepeatScore(c.group) * 45;
     });
   }
 
@@ -1947,48 +1981,55 @@ function divisionSpread(group) {
   return Math.max(...divs) - Math.min(...divs);
 }
 
-function courtFairnessScore(group) {
+const GRADED_NEAR_BEST_SLACK = 70;
+
+function gradedCourtScore(group) {
+  const spread = divisionSpread(group);
+  let divScore = spread;
+  if (spread > 2) divScore = spread * 20 + Math.pow(spread - 2, 2) * 800;
   const gamesSum = group.reduce((s, p) => s + p.gamesPlayed, 0);
   const sitSum = group.reduce((s, p) => s + (p.sitOuts || 0), 0);
-  return gamesSum * 10000 + sitSum * 100 + divisionSpread(group);
+  return divScore * 10000 + gamesSum * 100 + sitSum * 50 + courtMateRepeatScore(group);
 }
 
-function pickCourtPlayers(available, type, graded, deterministic = false) {
+function pickGradedCourtGroup(pool, type, deterministic) {
   const need = COURT_TYPES[type];
   const needM = need.m || 0;
   const needF = need.f || 0;
-  const males = available.filter(p => p.gender === "M").sort(byFairness);
-  const females = available.filter(p => p.gender === "F").sort(byFairness);
-
+  const males = pool.filter(p => p.gender === "M");
+  const females = pool.filter(p => p.gender === "F");
   if (males.length < needM || females.length < needF) return [];
 
-  if (!graded) {
-    return pickNonGradedCourtGroup(available, type);
-  }
-
-  let bestScore = Infinity;
-  let bestGroups = [];
-
+  const scored = [];
   for (const malePick of combinations(males, needM)) {
     for (const femalePick of combinations(females, needF)) {
       const group = [...malePick, ...femalePick];
       if (!isValidCourt(group) || !isUniqueGroup(group)) continue;
-      const score = courtFairnessScore(group);
-      if (score < bestScore) {
-        bestScore = score;
-        bestGroups = [group];
-      } else if (score === bestScore) {
-        bestGroups.push(group);
-      }
+      scored.push({
+        group,
+        score: gradedCourtScore(group),
+        repeat: courtMateRepeatScore(group)
+      });
     }
   }
 
-  if (!bestGroups.length) {
+  if (!scored.length) {
     return [...males.slice(0, needM), ...females.slice(0, needF)];
   }
-  return deterministic
-    ? bestGroups[0]
-    : bestGroups[Math.floor(Math.random() * bestGroups.length)];
+
+  const minScore = Math.min(...scored.map(s => s.score));
+  const slack = deterministic ? GRADED_NEAR_BEST_SLACK * 0.35 : GRADED_NEAR_BEST_SLACK;
+  let candidates = scored.filter(s => s.score <= minScore + slack);
+  const minRepeat = Math.min(...candidates.map(s => s.repeat));
+  candidates = candidates.filter(s => s.repeat <= minRepeat + 120);
+  return candidates[Math.floor(Math.random() * candidates.length)].group;
+}
+
+function pickCourtPlayers(available, type, graded, deterministic = false) {
+  if (!graded) {
+    return pickNonGradedCourtGroup(available, type);
+  }
+  return pickGradedCourtGroup(available, type, deterministic);
 }
 
 function removeFromPool(pool, group) {
@@ -2058,6 +2099,8 @@ function assignCourts() {
       playedThisRound.add(p.name);
       courtPlayers.appendChild(createCourtPlayerTile(p));
     });
+
+    recordCourtMates(courtPlan.group);
 
     courts.appendChild(court);
   });
