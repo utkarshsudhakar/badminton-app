@@ -1114,6 +1114,8 @@ let pickingInterval = null;
 let isPicking = false;
 let alarmActive = false;
 let chimeInterval = null;
+let endRoundAudio = null;
+let endRoundSoundUrl = null;
 let audioCtx = null;
 
 function showTab(tab) {
@@ -1293,6 +1295,12 @@ const ROUND_ALARM_START_SEC = 30;
 const ROUND_ALARM_DURATION_SEC = 15;
 const ROUND_ALARM_STOP_SEC = ROUND_ALARM_START_SEC - ROUND_ALARM_DURATION_SEC;
 
+const END_ROUND_SOUND_PATHS = [
+  "army_wake_up.mp3",
+  "sounds/get-ready.mp3",
+  "sounds/end-round.mp3"
+];
+
 function playProfessionalTone(ctx, out, freq, startTime, duration, volume) {
   const filter = ctx.createBiquadFilter();
   const gain = ctx.createGain();
@@ -1342,11 +1350,65 @@ function playEnterpriseWithInterval() {
   chimeInterval = setInterval(playEnterpriseAttention, 2700);
 }
 
+function tryLoadEndRoundSound() {
+  if (endRoundSoundUrl) return Promise.resolve(endRoundSoundUrl);
+  return new Promise(resolve => {
+    const tryPath = (index) => {
+      if (index >= END_ROUND_SOUND_PATHS.length) {
+        resolve(null);
+        return;
+      }
+      const path = END_ROUND_SOUND_PATHS[index];
+      const probe = new Audio();
+      probe.addEventListener("canplaythrough", () => {
+        endRoundSoundUrl = path;
+        resolve(path);
+      }, { once: true });
+      probe.addEventListener("error", () => tryPath(index + 1), { once: true });
+      probe.src = path;
+      probe.load();
+    };
+    tryPath(0);
+  });
+}
+
+function playEndRoundMp3() {
+  if (!endRoundSoundUrl) return Promise.resolve(false);
+  if (!endRoundAudio || endRoundAudio.getAttribute("data-src") !== endRoundSoundUrl) {
+    if (endRoundAudio) {
+      endRoundAudio.pause();
+      endRoundAudio = null;
+    }
+    endRoundAudio = new Audio(endRoundSoundUrl);
+    endRoundAudio.setAttribute("data-src", endRoundSoundUrl);
+  }
+  endRoundAudio.loop = true;
+  endRoundAudio.volume = 1;
+  endRoundAudio.currentTime = 0;
+  return endRoundAudio.play().then(() => true).catch(() => false);
+}
+
 function playEndAlarm() {
   if (alarmActive) return;
   alarmActive = true;
   initAudio();
-  playEnterpriseWithInterval();
+
+  const startMp3 = () => {
+    playEndRoundMp3().then(ok => {
+      if (!alarmActive) return;
+      if (!ok) playEnterpriseWithInterval();
+    });
+  };
+
+  if (endRoundSoundUrl) {
+    startMp3();
+    return;
+  }
+  tryLoadEndRoundSound().then(url => {
+    if (!alarmActive) return;
+    if (url) startMp3();
+    else playEnterpriseWithInterval();
+  });
 }
 
 function stopEndAlarm() {
@@ -1354,6 +1416,11 @@ function stopEndAlarm() {
   if (chimeInterval) {
     clearInterval(chimeInterval);
     chimeInterval = null;
+  }
+  if (endRoundAudio) {
+    endRoundAudio.pause();
+    endRoundAudio.currentTime = 0;
+    endRoundAudio.loop = false;
   }
 }
 
@@ -2311,6 +2378,7 @@ syncCourtColumns(parseInt(document.getElementById("courtCount").value, 10) || 3)
 document.getElementById("courtCount").addEventListener("input", e => {
   syncCourtColumns(parseInt(e.target.value, 10) || 3);
 });
+tryLoadEndRoundSound();
 </script>
 
 </body>
