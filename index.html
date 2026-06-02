@@ -1009,7 +1009,7 @@ input[type="file"] {
               <input type="checkbox" id="autoPick" checked>
               <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
             </label>
-            <p class="toggle-card-hint">10s break, 5s countdown, then start timer</p>
+            <p class="toggle-card-hint">5s pick countdown, then 10s until the round timer starts</p>
           </div>
         </div>
       </div>
@@ -1288,6 +1288,11 @@ const ENTERPRISE_CHIME = [
   { f: 659.25, d: 0.2 }
 ];
 
+/** End-of-round chime: starts this many seconds before round ends, plays for this long. */
+const ROUND_ALARM_START_SEC = 30;
+const ROUND_ALARM_DURATION_SEC = 15;
+const ROUND_ALARM_STOP_SEC = ROUND_ALARM_START_SEC - ROUND_ALARM_DURATION_SEC;
+
 function playProfessionalTone(ctx, out, freq, startTime, duration, volume) {
   const filter = ctx.createBiquadFilter();
   const gain = ctx.createGain();
@@ -1361,32 +1366,26 @@ function playCountdownTick() {
   playProfessionalTone(ctx, out, 1318, t + 0.045, 0.06, 0.35);
 }
 
-function runBreakPeriod(seconds, onDone) {
+function runNextRoundCountdown(seconds, onDone) {
   if (isPicking) return;
   isPicking = true;
   stopEndAlarm();
   clearInterval(timerInterval);
+  clearInterval(breakInterval);
+  clearInterval(pickingInterval);
 
-  const overlay = document.getElementById("pickingOverlay");
-  const countdownEl = document.getElementById("pickingCountdown");
-  const titleEl = document.getElementById("pickingTitle");
-  const subtitleEl = document.getElementById("pickingSubtitle");
   const timerBar = document.getElementById("timerBar");
-
-  titleEl.textContent = "Break";
-  subtitleEl.textContent = "Rest up — next round starts after the break";
-  let left = seconds;
-  countdownEl.textContent = left;
-  timerDisplay.textContent = String(left);
   timerBar.classList.remove("urgent", "warning");
-  nextRoundText.textContent = `${seconds}-second break`;
-  overlay.classList.remove("hidden");
+
+  let left = seconds;
+  timerDisplay.textContent = String(left);
+  nextRoundText.textContent = "Next round starts in";
 
   breakInterval = setInterval(() => {
     left--;
     if (left > 0) {
-      countdownEl.textContent = left;
       timerDisplay.textContent = String(left);
+      playCountdownTick();
     } else {
       clearInterval(breakInterval);
       breakInterval = null;
@@ -1415,7 +1414,6 @@ function runPickingAnimation(onDone) {
 
   function showCount(n) {
     countdownEl.textContent = n;
-    timerDisplay.textContent = String(n);
     playCountdownTick();
   }
 
@@ -1447,7 +1445,7 @@ function updateAutoPickUI() {
 
 function afterRoundEnds() {
   if (isAutoPickOn()) {
-    runBreakPeriod(10, () => runPickingAnimation(finishRoundStart));
+    runPickingAnimation(finishRoundStart);
   } else {
     finishRoundStart();
   }
@@ -1459,7 +1457,7 @@ function finishRoundStart() {
   sessionActive = true;
 
   if (isAutoPickOn()) {
-    startTimerOnly();
+    runNextRoundCountdown(10, startTimerOnly);
   } else {
     clearInterval(timerInterval);
     stopEndAlarm();
@@ -1492,11 +1490,11 @@ function startTimerOnly() {
     timerDisplay.textContent =
       String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0");
 
-    timerBar.classList.toggle("urgent", seconds <= 10 && seconds > 0);
-    timerBar.classList.toggle("warning", seconds <= 60 && seconds > 10);
+    timerBar.classList.toggle("urgent", seconds <= ROUND_ALARM_START_SEC && seconds > 0);
+    timerBar.classList.toggle("warning", seconds <= 60 && seconds > ROUND_ALARM_START_SEC);
 
-    if (seconds <= 10 && seconds > 0) playEndAlarm();
-    else if (seconds > 10) stopEndAlarm();
+    if (seconds <= ROUND_ALARM_START_SEC && seconds > ROUND_ALARM_STOP_SEC) playEndAlarm();
+    else stopEndAlarm();
 
     if (seconds <= 0) {
       clearInterval(timerInterval);
