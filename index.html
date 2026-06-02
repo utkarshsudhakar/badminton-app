@@ -1114,8 +1114,9 @@ let pickingInterval = null;
 let isPicking = false;
 let alarmActive = false;
 let chimeInterval = null;
-let endRoundAudio = null;
-let endRoundSoundUrl = null;
+let endRoundSoundUrl = "army_wake_up.mp3";
+let endRoundBuffer = null;
+let endRoundSource = null;
 let audioCtx = null;
 
 function showTab(tab) {
@@ -1301,6 +1302,55 @@ const END_ROUND_SOUND_PATHS = [
   "sounds/end-round.mp3"
 ];
 
+async function prepareEndRoundSound() {
+  initAudio();
+  if (endRoundBuffer) return true;
+
+  const paths = endRoundSoundUrl
+    ? [endRoundSoundUrl, ...END_ROUND_SOUND_PATHS.filter(p => p !== endRoundSoundUrl)]
+    : END_ROUND_SOUND_PATHS;
+
+  for (const path of paths) {
+    try {
+      const res = await fetch(path);
+      if (!res.ok) continue;
+      const data = await res.arrayBuffer();
+      endRoundBuffer = await audioCtx.decodeAudioData(data);
+      endRoundSoundUrl = path;
+      return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
+function stopEndRoundMp3() {
+  if (endRoundSource) {
+    try {
+      endRoundSource.stop();
+    } catch (_) {}
+    try {
+      endRoundSource.disconnect();
+    } catch (_) {}
+    endRoundSource = null;
+  }
+}
+
+function playEndRoundMp3() {
+  if (!endRoundBuffer || !audioCtx) return false;
+  stopEndRoundMp3();
+  try {
+    const src = audioCtx.createBufferSource();
+    src.buffer = endRoundBuffer;
+    src.loop = true;
+    src.connect(getAudioBus());
+    src.start(0);
+    endRoundSource = src;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function playProfessionalTone(ctx, out, freq, startTime, duration, volume) {
   const filter = ctx.createBiquadFilter();
   const gain = ctx.createGain();
@@ -1350,60 +1400,23 @@ function playEnterpriseWithInterval() {
   chimeInterval = setInterval(playEnterpriseAttention, 2700);
 }
 
-async function tryLoadEndRoundSound() {
-  if (endRoundSoundUrl) return endRoundSoundUrl;
-  for (const path of END_ROUND_SOUND_PATHS) {
-    try {
-      const res = await fetch(path, { method: "HEAD" });
-      if (res.ok) {
-        endRoundSoundUrl = path;
-        return path;
-      }
-    } catch (_) {}
-  }
-  endRoundSoundUrl = END_ROUND_SOUND_PATHS[0];
-  return endRoundSoundUrl;
-}
-
-function playCustomEndSound() {
-  if (!endRoundSoundUrl) return;
-  if (!endRoundAudio || endRoundAudio.getAttribute("data-src") !== endRoundSoundUrl) {
-    if (endRoundAudio) {
-      endRoundAudio.pause();
-      endRoundAudio = null;
-    }
-    endRoundAudio = new Audio(endRoundSoundUrl);
-    endRoundAudio.setAttribute("data-src", endRoundSoundUrl);
-  }
-  endRoundAudio.volume = 1;
-  endRoundAudio.loop = true;
-  endRoundAudio.currentTime = 0;
-  endRoundAudio.play().catch(() => playEnterpriseWithInterval());
-}
-
 function playEndAlarm() {
   if (alarmActive) return;
   alarmActive = true;
   initAudio();
 
-  if (endRoundSoundUrl) {
-    playCustomEndSound();
-    return;
-  }
-  tryLoadEndRoundSound().then(() => {
+  if (playEndRoundMp3()) return;
+
+  prepareEndRoundSound().then(ok => {
     if (!alarmActive) return;
-    if (endRoundSoundUrl) playCustomEndSound();
-    else playEnterpriseWithInterval();
+    if (ok && playEndRoundMp3()) return;
+    playEnterpriseWithInterval();
   });
 }
 
 function stopEndAlarm() {
   alarmActive = false;
-  if (endRoundAudio) {
-    endRoundAudio.pause();
-    endRoundAudio.currentTime = 0;
-    endRoundAudio.loop = false;
-  }
+  stopEndRoundMp3();
   if (chimeInterval) {
     clearInterval(chimeInterval);
     chimeInterval = null;
@@ -1530,6 +1543,8 @@ function startTimer() {
 function startTimerOnly() {
   clearInterval(timerInterval);
   stopEndAlarm();
+  initAudio();
+  if (!endRoundBuffer) prepareEndRoundSound();
   timerRunning = true;
   updateAutoPickUI();
 
@@ -1572,6 +1587,7 @@ function startRound() {
   stopEndAlarm();
   timerRunning = false;
   initAudio();
+  prepareEndRoundSound();
 
   const attending = players.filter(p => p.attending);
   if (attending.length < 4) {
@@ -2364,7 +2380,6 @@ syncCourtColumns(parseInt(document.getElementById("courtCount").value, 10) || 3)
 document.getElementById("courtCount").addEventListener("input", e => {
   syncCourtColumns(parseInt(e.target.value, 10) || 3);
 });
-tryLoadEndRoundSound();
 </script>
 
 </body>
