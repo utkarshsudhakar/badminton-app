@@ -1278,6 +1278,40 @@ function initAudio() {
     masterGain.connect(audioCtx.destination);
   }
   if (audioCtx.state === "suspended") audioCtx.resume();
+  primeEndRoundAudio();
+}
+
+function getOrCreateEndRoundAudio() {
+  if (!endRoundSoundUrl) return null;
+  if (!endRoundAudio || endRoundAudio.getAttribute("data-src") !== endRoundSoundUrl) {
+    if (endRoundAudio) {
+      endRoundAudio.pause();
+      endRoundAudio = null;
+    }
+    endRoundAudio = new Audio(endRoundSoundUrl);
+    endRoundAudio.setAttribute("data-src", endRoundSoundUrl);
+    endRoundAudio.preload = "auto";
+    endRoundAudio.setAttribute("playsinline", "");
+    endRoundAudio.playsInline = true;
+    endRoundAudio.load();
+  }
+  return endRoundAudio;
+}
+
+/** Unlock HTML5 audio on Safari/iOS (needs a brief play during user gesture). */
+function primeEndRoundAudio() {
+  const audio = getOrCreateEndRoundAudio();
+  if (!audio) return;
+  const wasMuted = audio.muted;
+  audio.muted = true;
+  const p = audio.play();
+  if (p && typeof p.then === "function") {
+    p.then(() => {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.muted = wasMuted;
+    }).catch(() => { audio.muted = wasMuted; });
+  }
 }
 
 function getAudioBus() {
@@ -1292,7 +1326,7 @@ const ENTERPRISE_CHIME = [
 
 /** End-of-round chime: starts this many seconds before round ends, plays for this long. */
 const ROUND_ALARM_START_SEC = 30;
-const ROUND_ALARM_DURATION_SEC = 15;
+const ROUND_ALARM_DURATION_SEC = 20;
 const ROUND_ALARM_STOP_SEC = ROUND_ALARM_START_SEC - ROUND_ALARM_DURATION_SEC;
 
 const END_ROUND_SOUND_PATHS = [
@@ -1362,6 +1396,7 @@ function tryLoadEndRoundSound() {
       const probe = new Audio();
       probe.addEventListener("canplaythrough", () => {
         endRoundSoundUrl = path;
+        primeEndRoundAudio();
         resolve(path);
       }, { once: true });
       probe.addEventListener("error", () => tryPath(index + 1), { once: true });
@@ -1373,19 +1408,13 @@ function tryLoadEndRoundSound() {
 }
 
 function playEndRoundMp3() {
-  if (!endRoundSoundUrl) return Promise.resolve(false);
-  if (!endRoundAudio || endRoundAudio.getAttribute("data-src") !== endRoundSoundUrl) {
-    if (endRoundAudio) {
-      endRoundAudio.pause();
-      endRoundAudio = null;
-    }
-    endRoundAudio = new Audio(endRoundSoundUrl);
-    endRoundAudio.setAttribute("data-src", endRoundSoundUrl);
-  }
-  endRoundAudio.loop = true;
-  endRoundAudio.volume = 1;
-  endRoundAudio.currentTime = 0;
-  return endRoundAudio.play().then(() => true).catch(() => false);
+  const audio = getOrCreateEndRoundAudio();
+  if (!audio) return Promise.resolve(false);
+  audio.muted = false;
+  audio.loop = true;
+  audio.volume = 1;
+  audio.currentTime = 0;
+  return audio.play().then(() => true).catch(() => false);
 }
 
 function playEndAlarm() {
